@@ -1,0 +1,30 @@
+# Swift Package Manager
+.build/
+*.resolved
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+*.pbxproj
+
+# Build artifacts
+Poof.app/
+Poof.dmg
+.dmg_staging/
+
+# node
+node_modules/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Editor
+.vscode/
+.cursor/
+*.swp
+*.swo

@@ -1,0 +1,30 @@
+{
+  "name": "poof",
+  "version": "1.0.0",
+  "description": "System-wide text expander for macOS. Type a curated /trigger in any app and it expands to your text.",
+  "author": "Nick Villapiano <nvillapiano@gmail.com>",
+  "license": "MIT",
+  "private": true,
+  "os": ["darwin"],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "bash build.sh",
+    "migrate": "bash install.sh",
+    "build:full": "npm run build && npm run migrate"
+  },
+  "keywords": [
+    "macos",
+    "text-expander",
+    "snippets",
+    "autocorrect",
+    "menu-bar",
+    "swift",
+    "appkit"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nvillapiano/poof.git"
+  }
+}
