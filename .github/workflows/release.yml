@@ -1,0 +1,32 @@
+# release.yml
+#
+# Triggered by version tags pushed by auto-tag.yml (or a manual patch bump).
+# Builds Poof.app + Poof.dmg via build.sh and attaches the DMG to the release.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: bash build.sh
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
+          gh release upload "${GITHUB_REF_NAME}" Poof.dmg

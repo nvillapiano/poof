@@ -15,6 +15,18 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   dismisses. Modeled on Disco's non-activating `NSPanel` picker; caret located
   via the Accessibility API, same as Disco.
 
+### Added
+- **CI workflow scaffolding** (adopts [git-for-ai](https://github.com/nvillapiano/git-for-ai)).
+  `auto-tag` bumps the semver on merge to `main` from the Conventional Commit
+  prefix (`feat:` → minor, `feat!:`/`BREAKING CHANGE` → major) and updates
+  `package.json` + `Resources/Info.plist`; a tag-triggered release workflow runs
+  `build.sh` and attaches `Poof.dmg` to the GitHub release. PR and issue
+  templates added under `.github/`.
+- **`npm run release` / `npm run release:patch`** — release helpers. `release`
+  pushes `main` and tags the version from `package.json` (triggering the release
+  build); `release:patch` bumps the patch version, updates `Info.plist`,
+  commits, and tags — the manual path for critical fixes.
+
 ### Notes
 - The popup only appears once there's at least one character after the prefix,
   so a bare `/` typed in paths/URLs/dates never surfaces it.
@@ -53,3 +65,6 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Return is treated as a delimiter and re-emitted after expansion, mirroring
   native macOS Text Replacement (so `/trigger` + Enter in a chat box expands and
   sends). This is a one-line change if undesired — see README → Customising.
+
+[Unreleased]: https://github.com/nvillapiano/poof/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/nvillapiano/poof/releases/tag/v1.0.0
