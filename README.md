@@ -11,6 +11,18 @@ No Electron. No subscription. Pure Swift, pure AppKit.
 
 ---
 
+## Download
+
+**[→ Download the latest Poof.dmg](https://github.com/nvillapiano/poof/releases/latest)**
+
+1. Open the DMG and drag **Poof.app** to `/Applications`
+2. Launch Poof — right-click → **Open** on first run to bypass Gatekeeper
+3. Poof appears as 💨 in your menu bar; grant Accessibility when prompted
+
+Prefer to build it yourself? See [Build & Install](#build--install) below.
+
+---
+
 ## Features
 
 | | |
@@ -179,6 +191,29 @@ ignored, so a replacement can never accidentally trigger another expansion.
   from the delimiter check and re-emit switch to change that.
 - **Change the bundle ID / name** — edit `APP_NAME`/`BUNDLE_ID` in `build.sh`,
   `CFBundleIdentifier` in `Info.plist`, and `name` in `Package.swift`.
+
+---
+
+## Contributing & Releasing
+
+Poof follows the [git-for-ai](https://github.com/nvillapiano/git-for-ai)
+workflow: branch off `main` (`type/slug`), use [Conventional
+Commits](https://www.conventionalcommits.org/), and open one PR per logical
+change. Squash-merge only.
+
+```bash
+# 1. Bump version in package.json
+# 2. Update CHANGELOG.md
+# 3. Commit and push on a branch, open PR
+# 4. Squash-merge with feat: prefix → auto-tag fires → GitHub Actions builds and publishes Poof.dmg
+```
+
+Merging a `feat:` commit to `main` bumps the minor version (`feat!:` bumps
+major), tags it, and the release workflow builds and attaches `Poof.dmg` to the
+GitHub release automatically. `fix:`/`docs:`/`chore:` commits don't trigger a
+release.
+
+For critical patch releases: merge the `fix:` PR, then run `npm run release:patch`.
 
 ---
 
