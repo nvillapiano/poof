@@ -74,8 +74,12 @@ The app polls for the grant, so it starts working the moment you flip the switch
 
 | Action | Result |
 |---|---|
-| Type `/shrug` then space/tab/return | Expands to `¯\_(ツ)_/¯` |
-| `Escape` mid-trigger | Cancels the pending expansion (Escape still reaches the app) |
+| Start typing a trigger (e.g. `/sh`) | A popup near the caret lists matching snippets and their replacements |
+| `↑` / `↓` (popup open) | Move the highlight |
+| `Tab` / `Return` (popup open) | Accept the highlighted snippet and expand it |
+| `Escape` (popup open) | Dismiss the popup (keystroke is swallowed) |
+| Type `/shrug` then space/tab/return | Expands to `¯\_(ツ)_/¯` (works with or without the popup) |
+| `Escape` mid-trigger, no popup | Cancels the pending expansion (Escape still reaches the app) |
 | Menu bar 💨 → **Add Snippet…** (⌘N) | Opens the manager focused on the add form |
 | Menu bar 💨 → **Manage Snippets…** | Add, edit, or delete entries |
 | Menu bar 💨 → **Settings…** (⌘,) | Change the prefix, pause, launch-at-login |
@@ -113,7 +117,8 @@ Poof/
 │   ├── Preferences.swift             # UserDefaults wrapper (prefix, enable, login)
 │   ├── SnippetStore.swift            # Snippet model, JSON persistence, lookup
 │   ├── SnippetsWindowController.swift# Add / edit / delete manager window
-│   └── SettingsViewController.swift  # Settings popover (prefix setter, etc.)
+│   ├── SettingsViewController.swift  # Settings popover (prefix setter, etc.)
+│   └── PreviewWindowController.swift # Live autocomplete popup near the caret
 └── Resources/
     └── Info.plist                    # App bundle metadata
 ```
@@ -140,6 +145,20 @@ snippet, Poof swallows the delimiter (`return nil` from the tap), backspaces out
 the trigger, injects the replacement via `CGEvent.keyboardSetUnicodeString`
 (clean Unicode, no clipboard), then re-emits the delimiter so typing flow is
 preserved.
+
+### Live autocomplete popup
+As you type, `PreviewWindowController` shows a borderless, non-activating
+`NSPanel` (the same recipe as Disco's picker) near the caret, listing every
+snippet whose name prefix-matches what you've typed after the trigger prefix. It
+appears only once there's at least one character after the prefix — so a bare
+`/` in a path or URL never triggers it. `↑`/`↓` move the highlight; `Tab` or
+`Return` accept the highlighted entry and expand it immediately (no delimiter
+re-emitted); `Escape` dismisses it. These keys are swallowed while the popup is
+open, so they never leak to the host app. The caret is located via the
+Accessibility API (`caretScreenPosition()`), falling back to the focused
+element's frame, then the mouse. Interaction is keyboard-only by design: the tap
+treats any click as "caret moved" and dismisses the popup, so hover/click
+selection would fight that.
 
 ### Re-entrancy guard
 Our own injected keystrokes loop back through the session tap. Each synthetic

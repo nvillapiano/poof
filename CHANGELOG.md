@@ -5,6 +5,28 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Live autocomplete popup.** As you type a trigger, a floating popup appears
+  near the caret listing snippets whose names prefix-match what you've typed,
+  each with a preview of its replacement (`PreviewWindowController`). `↑`/`↓`
+  navigate, `Tab`/`Return` accept-and-expand the highlighted entry, `Escape`
+  dismisses. Modeled on Disco's non-activating `NSPanel` picker; caret located
+  via the Accessibility API, same as Disco.
+
+### Notes
+- The popup only appears once there's at least one character after the prefix,
+  so a bare `/` typed in paths/URLs/dates never surfaces it.
+- Accepting from the popup expands with no trailing delimiter; the classic
+  "type the full trigger + space/tab/return" commit still works unchanged.
+- Interaction is keyboard-only: the event tap treats any click as "caret moved"
+  and dismisses the popup, so hover/click selection is intentionally omitted.
+- Fixed a compile error in `AppDelegate` where a block-based `NotificationCenter`
+  observer returned `()?` instead of `Void`; replaced with a selector observer.
+
+---
+
 ## [1.0.0] — 2026-07-07
 
 ### Added

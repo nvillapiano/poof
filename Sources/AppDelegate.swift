@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var snippetsWindowController: SnippetsWindowController?
     private var settingsPopover: NSPopover?
     private var settingsVC: SettingsViewController?
+    private var previewController: PreviewWindowController?
 
     /// The token currently being typed since the last delimiter/reset. Includes
     /// the prefix once typed (e.g. "/shr"). Capped so it can't grow unbounded.
@@ -55,12 +56,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         checkAccessibilityAndStartTap()
 
         // Refresh the menu whenever prefs or snippets change.
-        let refresh = { [weak self] (_: Notification) in self?.attachMenu() }
-        NotificationCenter.default.addObserver(forName: Preferences.didChange,
-                                               object: nil, queue: .main, using: refresh)
-        NotificationCenter.default.addObserver(forName: SnippetStore.didChange,
-                                               object: nil, queue: .main, using: refresh)
+        NotificationCenter.default.addObserver(self, selector: #selector(refreshMenu),
+                                               name: Preferences.didChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(refreshMenu),
+                                               name: SnippetStore.didChange, object: nil)
     }
+
+    @objc private func refreshMenu() { attachMenu() }
 
     func applicationWillTerminate(_ notification: Notification) {
         stopEventTap()
@@ -185,11 +187,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Ignore events we posted ourselves.
         if event.getIntegerValueField(.eventSourceUserData) == Self.magic { return passThrough() }
 
-        guard Preferences.shared.isEnabled else { return passThrough() }
+        guard Preferences.shared.isEnabled else { hidePreview(); return passThrough() }
 
-        // A click moves the caret — abandon the in-progress word.
+        // A click moves the caret — abandon the in-progress word and popup.
         if type == .leftMouseDown || type == .rightMouseDown {
             currentWord = ""
+            hidePreview()
             return passThrough()
         }
 
@@ -201,23 +204,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Modifier combos are shortcuts, not typing.
         if flags.contains(.maskCommand) || flags.contains(.maskControl) || flags.contains(.maskAlternate) {
             currentWord = ""
+            hidePreview()
             return passThrough()
+        }
+
+        // While the suggestions popup is open it owns navigation/commit keys.
+        // These are swallowed (return nil) so they never leak to the host app —
+        // the visible popup is a capture mode the user is deliberately driving.
+        if previewVisible {
+            switch keyCode {
+            case kVK_UpArrow:   previewController?.moveUp();   return nil
+            case kVK_DownArrow: previewController?.moveDown(); return nil
+            case kVK_Escape:    currentWord = ""; hidePreview(); return nil
+            case kVK_Tab, kVK_Return, kVK_ANSI_KeypadEnter:
+                if let sel = previewController?.currentSelection {
+                    let triggerLength = currentWord.count
+                    currentWord = ""
+                    hidePreview()
+                    // Accept: delete what was typed and insert the highlighted
+                    // snippet's replacement, with no delimiter to re-emit.
+                    expand(triggerLength: triggerLength, replacement: sel.replacement,
+                           delimiterKeyCode: nil)
+                    return nil
+                }
+            default: break
+            }
         }
 
         // Backspace trims the buffer so a corrected trigger still matches.
         if keyCode == kVK_Delete {
             if !currentWord.isEmpty { currentWord.removeLast() }
+            refreshPreview()
             return passThrough()
         }
 
-        // Escape cancels a pending expansion: clear the in-progress trigger so
-        // it can't fire. We pass Escape THROUGH to the host app rather than
-        // swallow it — Poof shows no popup, so there's no visible capture mode
-        // that would justify eating the keystroke. (To get Disco-style
-        // swallow-while-active instead, gate on currentWord.hasPrefix(prefix)
-        // and return nil here.)
+        // Escape with no popup open: clear the in-progress trigger so it can't
+        // fire, but pass Escape THROUGH to the host app — Poof shows nothing
+        // here, so there's no visible capture mode that would justify eating it.
         if keyCode == kVK_Escape {
             currentWord = ""
+            hidePreview()
             return passThrough()
         }
 
@@ -225,12 +251,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // end of what we've been tracking).
         if resetKeyCodes.contains(keyCode) {
             currentWord = ""
+            hidePreview()
             return passThrough()
         }
 
-        // Delimiters complete a token.
+        // Delimiters complete a token. Tab/Return only reach here when the popup
+        // is closed (otherwise they're consumed above as "accept"); Space always
+        // lands here, so it commits an exact match rather than accepting.
         if keyCode == kVK_Space || keyCode == kVK_Tab ||
            keyCode == kVK_Return || keyCode == kVK_ANSI_KeypadEnter {
+            hidePreview()
             if let replacement = SnippetStore.shared.replacement(forTypedToken: currentWord) {
                 let triggerLength = currentWord.count
                 currentWord = ""
@@ -245,6 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let char = event.character {
             currentWord += char
             if currentWord.count > 64 { currentWord = String(currentWord.suffix(64)) }
+            refreshPreview()
         }
         return passThrough()
     }
@@ -260,7 +291,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Expansion (posting synthetic events)
 
-    private func expand(triggerLength: Int, replacement: String, delimiterKeyCode: Int) {
+    /// Replaces the just-typed trigger with `replacement`. When `delimiterKeyCode`
+    /// is non-nil (a space/tab/return commit), that delimiter is re-emitted after
+    /// the text so typing flow is preserved; when nil (a popup "accept"), nothing
+    /// trailing is emitted.
+    private func expand(triggerLength: Int, replacement: String, delimiterKeyCode: Int?) {
         // Post on the main queue so we return from the tap callback immediately.
         DispatchQueue.main.async {
             let src = CGEventSource(stateID: .hidSystemState)
@@ -273,7 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
                 self.postString(replacement, source: src)
 
-                // 3. Re-emit whatever delimiter the user pressed.
+                // 3. Re-emit whatever delimiter the user pressed (commit only).
                 switch delimiterKeyCode {
                 case kVK_Space:  self.postString(" ", source: src)
                 case kVK_Tab:    self.postString("\t", source: src)
@@ -310,6 +345,99 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
         up?.setIntegerValueField(.eventSourceUserData, value: Self.magic)
         up?.post(tap: .cghidEventTap)
+    }
+
+    // MARK: - Suggestions Popup
+
+    private var previewVisible: Bool { previewController?.window?.isVisible ?? false }
+
+    private func hidePreview() { previewController?.hide() }
+
+    /// Recomputes the snippets matching the current token and shows or hides the
+    /// autocomplete popup accordingly. Called after each character / backspace.
+    private func refreshPreview() {
+        guard Preferences.shared.isEnabled else { hidePreview(); return }
+        let prefix = Preferences.shared.triggerPrefix
+        guard currentWord.hasPrefix(prefix) else { hidePreview(); return }
+
+        // Require at least one character after the prefix. Otherwise the popup
+        // would flash on every bare "/" typed in file paths, URLs, dates, etc.
+        let partial = String(currentWord.dropFirst(prefix.count))
+        guard !partial.isEmpty else { hidePreview(); return }
+
+        // Prefix match on the name, case-insensitive for friendlier discovery.
+        // (Acceptance always inserts the snippet's own canonical replacement.)
+        let needle  = partial.lowercased()
+        let matches = SnippetStore.shared.snippets.filter { $0.name.lowercased().hasPrefix(needle) }
+        guard !matches.isEmpty else { hidePreview(); return }
+
+        if previewController == nil { previewController = PreviewWindowController() }
+        previewController?.show(matches: matches, prefix: prefix, near: caretScreenPosition())
+    }
+
+    // MARK: - Caret Position
+
+    /// Screen position of the insertion caret in the focused text field, via the
+    /// Accessibility API. Ported from Disco. Tries, in order:
+    ///   1. Exact caret bounds (kAXBoundsForRangeParameterizedAttribute)
+    ///   2. The focused element's frame — for apps that don't expose caret bounds
+    ///      (Chrome, Electron, VS Code, …)
+    ///   3. The mouse location, as a last resort
+    /// AX rects use a top-left origin; we convert to NSPoint's bottom-left origin.
+    private func caretScreenPosition() -> NSPoint {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedEl: CFTypeRef?
+        AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedEl)
+        guard let focused = focusedEl else { return NSEvent.mouseLocation }
+        let el = focused as! AXUIElement
+
+        let screenH = NSScreen.screens.first?.frame.height ?? 800
+
+        // 1. Precise caret position via the selected text range bounds.
+        var selVal: CFTypeRef?
+        if AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute as CFString, &selVal) == .success,
+           let sel = selVal {
+            var boundsVal: CFTypeRef?
+            if AXUIElementCopyParameterizedAttributeValue(
+                el, kAXBoundsForRangeParameterizedAttribute as CFString, sel, &boundsVal
+            ) == .success, let bv = boundsVal {
+                var rect = CGRect.zero
+                // Require a plausible line-height rect that sits on-screen. Apps
+                // that mis-implement this attribute often return a zero-size rect
+                // at the CG origin, which would anchor the popup to a corner.
+                if AXValueGetValue(bv as! AXValue, .cgRect, &rect),
+                   rect.height > 2,
+                   rect.maxY > 0,
+                   rect.maxY < screenH {
+                    return NSPoint(x: rect.minX, y: screenH - rect.maxY)
+                }
+            }
+        }
+
+        // 2. Fallback: the focused element's frame. Skip elements taller than
+        //    120pt (containers, not inputs). Prefer the mouse x if it's inside
+        //    the field, else the field's horizontal centre.
+        var posVal: CFTypeRef?
+        var sizeVal: CFTypeRef?
+        if AXUIElementCopyAttributeValue(el, kAXPositionAttribute as CFString, &posVal) == .success,
+           AXUIElementCopyAttributeValue(el, kAXSizeAttribute as CFString, &sizeVal) == .success,
+           let pv = posVal, let sv = sizeVal {
+            var pos  = CGPoint.zero
+            var size = CGSize.zero
+            if AXValueGetValue(pv as! AXValue, .cgPoint, &pos),
+               AXValueGetValue(sv as! AXValue, .cgSize, &size),
+               size.height > 0, size.height < 120 {
+                let fieldMinX = pos.x
+                let fieldMaxX = pos.x + size.width
+                let mouseX    = NSEvent.mouseLocation.x
+                let anchorX   = (mouseX >= fieldMinX && mouseX <= fieldMaxX)
+                                ? mouseX
+                                : (fieldMinX + fieldMaxX) / 2
+                return NSPoint(x: anchorX, y: screenH - (pos.y + size.height))
+            }
+        }
+
+        return NSEvent.mouseLocation
     }
 
     // MARK: - Menu status lines
